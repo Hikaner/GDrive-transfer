@@ -155,9 +155,12 @@ def list_path(req: ListPathRequest, token: str = Depends(verify_token)):
                 except ValueError:
                     size = 0
                 
+                # Ensure path is correctly joined and formatted
+                item_path = f"{req.path}/{name}".strip("/")
+                
                 formatted_items.append({
                     "name": name,
-                    "path": os.path.join(req.path, name).replace("\\", "/"),
+                    "path": item_path,
                     "is_dir": is_dir,
                     "size": size,
                 })
