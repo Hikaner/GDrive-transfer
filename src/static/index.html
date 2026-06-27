@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GDrive Transfer Web-UI</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+        .card-header {
+            background-color: #fff;
+            border-bottom: 1px solid #f1f1f1;
+            font-weight: 600;
+        }
+        .file-list {
+            max-height: 350px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            background-color: #fff;
+        }
+        .file-item {
+            padding: 8px 12px;
+            border-bottom: 1px solid #f1f1f1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+        .file-item:hover {
+            background-color: #f1f3f5;
+        }
+        .file-item.selected {
+            background-color: #e8f0fe;
+        }
+        .file-item:last-child {
+            border-bottom: none;
+        }
+        .log-container {
+            background-color: #212529;
+            color: #f8f9fa;
+            font-family: monospace;
+            padding: 15px;
+            border-radius: 5px;
+            height: 250px;
+            overflow-y: auto;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+        }
+        .breadcrumb-item {
+            cursor: pointer;
+            color: #0d6efd;
+        }
+        .breadcrumb-item.active {
+            color: #6c757d;
+            cursor: default;
+        }
+        .progress {
+            height: 25px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="bi bi-cloud-arrow-down-up me-2"></i>GDrive Transfer Web-UI
+            </a>
+            <span class="navbar-text text-white" id="auth-status">
+                <i class="bi bi-shield-lock-fill text-success me-1"></i>Authenticated
+            </span>
+        </div>
+    </nav>
+
+    <div class="container my-4">
+        <!-- Step 1: Upload Config -->
+        <div class="row" id="config-section">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-gear-fill me-2 text-primary"></i>Rclone Configuration</span>
+                        <span class="badge bg-secondary" id="config-badge">Checking...</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-md-6">
+                                <p class="text-muted mb-md-0">Upload your <code>rclone.conf</code> file to start transferring files. The file will be saved securely on the Colab instance.</p>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="input-group">
+                                    <input type="file" class="form-control" id="config-file-input" accept=".conf">
+                                    <button class="btn btn-primary" type="button" id="upload-config-btn">Upload</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: File Manager (Source & Destination) -->
+        <div class="row d-none" id="transfer-section">
+            <!-- Source Panel -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-folder-symlink-fill me-2 text-success"></i>Source (Nguồn)
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Select Remote</label>
+                            <select class="form-select" id="src-remote-select"></select>
+                        </div>
+                        <nav aria-label="breadcrumb">
+                            <ol class="breadcrumb" id="src-breadcrumb">
+                                <li class="breadcrumb-item active">Root</li>
+                            </ol>
+                        </nav>
+                        <div class="file-list" id="src-file-list">
+                            <div class="p-3 text-center text-muted">Select a remote to view files</div>
+                        </div>
+                        <div class="mt-2 text-muted small" id="src-selected-path">Selected: None</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Destination Panel -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-folder-check me-2 text-danger"></i>Destination (Đích)
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Select Remote</label>
+                            <select class="form-select" id="dst-remote-select"></select>
+                        </div>
+                        <nav aria-label="breadcrumb">
+                            <ol class="breadcrumb" id="dst-breadcrumb">
+                                <li class="breadcrumb-item active">Root</li>
+                            </ol>
+                        </nav>
+                        <div class="file-list" id="dst-file-list">
+                            <div class="p-3 text-center text-muted">Select a remote to view files</div>
+                        </div>
+                        <div class="mt-2 text-muted small" id="dst-selected-path">Selected: None</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transfer Options & Progress -->
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-sliders me-2 text-warning"></i>Transfer Options & Control
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Action</label>
+                                <select class="form-select" id="transfer-action">
+                                    <option value="copy" selected>Copy (Sao chép)</option>
+                                    <option value="move">Move (Di chuyển)</option>
+                                    <option value="sync">Sync (Đồng bộ)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Transfers (Số luồng tải)</label>
+                                <input type="number" class="form-control" id="transfer-threads" value="4" min="1" max="32">
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Checkers (Số luồng check)</label>
+                                <input type="number" class="form-control" id="transfer-checkers" value="8" min="1" max="64">
+                            </div>
+                            <div class="col-md-3 mb-3">
+                                <label class="form-label">Transfer Mode</label>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="server-side-check" checked>
+                                    <label class="form-check-label" for="server-side-check">
+                                        Server Side Transfer (Nếu hỗ trợ)
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Extra Arguments (Tham số bổ sung, cách nhau bằng dấu cách)</label>
+                            <input type="text" class="form-control" id="extra-args" placeholder="--ignore-existing --drive-shared-with-me">
+                        </div>
+
+                        <div class="d-flex gap-2 mb-4">
+                            <button class="btn btn-success btn-lg flex-grow-1" id="start-btn">
+                                <i class="bi bi-play-fill me-2"></i>Start Transfer
+                            </button>
+                            <button class="btn btn-danger btn-lg flex-grow-1 d-none" id="stop-btn">
+                                <i class="bi bi-stop-fill me-2"></i>Stop Transfer
+                            </button>
+                        </div>
+
+                        <!-- Progress Bar -->
+                        <div class="d-none" id="progress-section">
+                            <h5 class="d-flex justify-content-between">
+                                <span>Progress: <span id="progress-percent">0%</span></span>
+                                <span class="badge bg-primary" id="transfer-status-badge">Running</span>
+                            </h5>
+                            <div class="progress mb-3">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%" id="progress-bar"></div>
+                            </div>
+                            <div class="row text-center mb-3">
+                                <div class="col-md-3">
+                                    <div class="border rounded p-2">
+                                        <div class="text-muted small">Speed</div>
+                                        <strong id="stat-speed">0 B/s</strong>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="border rounded p-2">
+                                        <div class="text-muted small">ETA</div>
+                                        <strong id="stat-eta">Unknown</strong>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="border rounded p-2">
+                                        <div class="text-muted small">Transferred</div>
+                                        <strong id="stat-transferred">0 B / 0 B</strong>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="border rounded p-2">
+                                        <div class="text-muted small">Files</div>
+                                        <strong id="stat-files">0 / 0</strong>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Active Transfers -->
+                            <div id="active-transfers-container" class="mb-3 d-none">
+                                <h6>Active Transfers:</h6>
+                                <ul class="list-group" id="active-transfers-list"></ul>
+                            </div>
+                        </div>
+
+                        <!-- Logs -->
+                        <div>
+                            <h5 class="d-flex justify-content-between align-items-center">
+                                <span>Rclone Logs</span>
+                                <button class="btn btn-sm btn-outline-secondary" id="clear-log-btn">Clear View</button>
+                            </h5>
+                            <div class="log-container" id="log-output">Logs will appear here...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State variables
+        let token = new URLSearchParams(window.location.search).get('token');
+        let srcPath = '';
+        let dstPath = '';
+        let srcRemote = '';
+        let dstRemote = '';
+        let statusInterval = null;
+        let logInterval = null;
+
+        // Elements
+        const configSection = document.getElementById('config-section');
+        const transferSection = document.getElementById('transfer-section');
+        const configBadge = document.getElementById('config-badge');
+        const configFileInput = document.getElementById('config-file-input');
+        const uploadConfigBtn = document.getElementById('upload-config-btn');
+        
+        const srcRemoteSelect = document.getElementById('src-remote-select');
+        const dstRemoteSelect = document.getElementById('dst-remote-select');
+        const srcFileList = document.getElementById('src-file-list');
+        const dstFileList = document.getElementById('dst-file-list');
+        const srcBreadcrumb = document.getElementById('src-breadcrumb');
+        const dstBreadcrumb = document.getElementById('dst-breadcrumb');
+        const srcSelectedPathText = document.getElementById('src-selected-path');
+        const dstSelectedPathText = document.getElementById('dst-selected-path');
+
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const progressSection = document.getElementById('progress-section');
+        const progressBar = document.getElementById('progress-bar');
+        const progressPercent = document.getElementById('progress-percent');
+        const transferStatusBadge = document.getElementById('transfer-status-badge');
+        
+        const statSpeed = document.getElementById('stat-speed');
+        const statEta = document.getElementById('stat-eta');
+        const statTransferred = document.getElementById('stat-transferred');
+        const statFiles = document.getElementById('stat-files');
+        const activeTransfersContainer = document.getElementById('active-transfers-container');
+        const activeTransfersList = document.getElementById('active-transfers-list');
+        const logOutput = document.getElementById('log-output');
+        const clearLogBtn = document.getElementById('clear-log-btn');
+
+        // Helper to format bytes
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        // Initialize
+        async function init() {
+            if (token) {
+                // Authenticate and set cookie
+                try {
+                    const res = await fetch(`/api/auth?token=${token}`);
+                    if (res.ok) {
+                        // Remove token from URL to keep it clean
+                        window.history.replaceState({}, document.title, "/");
+                    }
+                } catch (e) {
+                    console.error("Auth failed", e);
+                }
+            }
+            
+            await checkConfigStatus();
+        }
+
+        async function checkConfigStatus() {
+            try {
+                const res = await fetch('/api/config/status');
+                const data = await res.json();
+                if (data.config_exists) {
+                    configBadge.textContent = 'Config Loaded';
+                    configBadge.className = 'badge bg-success';
+                    transferSection.classList.remove('d-none');
+                    populateRemotes(data.remotes);
+                } else {
+                    configBadge.textContent = 'No Config';
+                    configBadge.className = 'badge bg-danger';
+                    transferSection.classList.add('d-none');
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function populateRemotes(remotes) {
+            srcRemoteSelect.innerHTML = '<option value="" selected disabled>Choose remote...</option>';
+            dstRemoteSelect.innerHTML = '<option value="" selected disabled>Choose remote...</option>';
+            remotes.forEach(remote => {
+                const opt1 = document.createElement('option');
+                opt1.value = remote;
+                opt1.textContent = remote;
+                srcRemoteSelect.appendChild(opt1);
+
+                const opt2 = document.createElement('option');
+                opt2.value = remote;
+                opt2.textContent = remote;
+                dstRemoteSelect.appendChild(opt2);
+            });
+        }
+
+        // Upload Config
+        uploadConfigBtn.addEventListener('click', async () => {
+            const file = configFileInput.files[0];
+            if (!file) {
+                alert('Please select a file first.');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/api/config/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (res.ok) {
+                    alert('Config uploaded successfully!');
+                    await checkConfigStatus();
+                } else {
+                    const err = await res.json();
+                    alert('Upload failed: ' + (err.detail || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Error uploading config: ' + e.message);
+            }
+        });
+
+        // File Manager Logic
+        async function loadPath(remote, path, isSource) {
+            const fileList = isSource ? srcFileList : dstFileList;
+            fileList.innerHTML = '<div class="p-3 text-center"><div class="spinner-border text-primary" role="status"></div></div>';
+            
+            try {
+                const res = await fetch('/api/fs/list', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ remote, path })
+                });
+                
+                if (!res.ok) {
+                    const err = await res.json();
+                    fileList.innerHTML = `<div class="p-3 text-center text-danger">Error: ${err.detail || 'Failed to load'}</div>`;
+                    return;
+                }
+                
+                const data = await res.json();
+                fileList.innerHTML = '';
+                
+                if (data.items.length === 0) {
+                    fileList.innerHTML = '<div class="p-3 text-center text-muted">Empty folder</div>';
+                    return;
+                }
+
+                // Sort: directories first, then files
+                data.items.sort((a, b) => {
+                    if (a.is_dir && !b.is_dir) return -1;
+                    if (!a.is_dir && b.is_dir) return 1;
+                    return a.name.localeCompare(b.name);
+                });
+
+                data.items.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'file-item';
+                    
+                    const icon = item.is_dir ? 'bi-folder-fill text-warning' : 'bi-file-earmark-text text-secondary';
+                    const sizeText = item.is_dir ? '' : formatBytes(item.size);
+                    
+                    div.innerHTML = `
+                        <div>
+                            <i class="bi ${icon} me-2"></i>
+                            <span>${item.name}</span>
+                        </div>
+                        <span class="text-muted small">${sizeText}</span>
+                    `;
+                    
+                    div.addEventListener('click', () => {
+                        // Select item
+                        fileList.querySelectorAll('.file-item').forEach(el => el.classList.remove('selected'));
+                        div.classList.add('selected');
+                        
+                        const selectedPath = item.path;
+                        if (isSource) {
+                            srcSelectedPathText.textContent = `Selected: ${selectedPath}`;
+                            srcPath = selectedPath;
+                        } else {
+                            dstSelectedPathText.textContent = `Selected: ${selectedPath}`;
+                            dstPath = selectedPath;
+                        }
+                    });
+
+                    div.addEventListener('dblclick', () => {
+                        if (item.is_dir) {
+                            if (isSource) {
+                                srcPath = item.path;
+                                loadPath(srcRemote, srcPath, true);
+                                updateBreadcrumbs(srcRemote, srcPath, true);
+                            } else {
+                                dstPath = item.path;
+                                loadPath(dstRemote, dstPath, false);
+                                updateBreadcrumbs(dstRemote, dstPath, false);
+                            }
+                        }
+                    });
+                    
+                    fileList.appendChild(div);
+                });
+            } catch (e) {
+                fileList.innerHTML = `<div class="p-3 text-center text-danger">Error: ${e.message}</div>`;
+            }
+        }
+
+        function updateBreadcrumbs(remote, path, isSource) {
+            const breadcrumb = isSource ? srcBreadcrumb : dstBreadcrumb;
+            breadcrumb.innerHTML = '';
+            
+            const rootLi = document.createElement('li');
+            rootLi.className = 'breadcrumb-item';
+            rootLi.textContent = remote;
+            rootLi.addEventListener('click', () => {
+                if (isSource) {
+                    srcPath = '';
+                    loadPath(srcRemote, '', true);
+                    updateBreadcrumbs(srcRemote, '', true);
+                } else {
+                    dstPath = '';
+                    loadPath(dstRemote, '', false);
+                    updateBreadcrumbs(dstRemote, '', false);
+                }
+            });
+            breadcrumb.appendChild(rootLi);
+            
+            if (path) {
+                const parts = path.split('/');
+                let currentAccumulated = '';
+                parts.forEach((part, index) => {
+                    if (!part) return;
+                    currentAccumulated += (currentAccumulated ? '/' : '') + part;
+                    const li = document.createElement('li');
+                    
+                    if (index === parts.length - 1) {
+                        li.className = 'breadcrumb-item active';
+                        li.textContent = part;
+                    } else {
+                        li.className = 'breadcrumb-item';
+                        li.textContent = part;
+                        const targetPath = currentAccumulated;
+                        li.addEventListener('click', () => {
+                            if (isSource) {
+                                srcPath = targetPath;
+                                loadPath(srcRemote, targetPath, true);
+                                updateBreadcrumbs(srcRemote, targetPath, true);
+                            } else {
+                                dstPath = targetPath;
+                                loadPath(dstRemote, targetPath, false);
+                                updateBreadcrumbs(dstRemote, targetPath, false);
+                            }
+                        });
+                    }
+                    breadcrumb.appendChild(li);
+                });
+            }
+        }
+
+        srcRemoteSelect.addEventListener('change', (e) => {
+            srcRemote = e.target.value;
+            srcPath = '';
+            loadPath(srcRemote, '', true);
+            updateBreadcrumbs(srcRemote, '', true);
+        });
+
+        dstRemoteSelect.addEventListener('change', (e) => {
+            dstRemote = e.target.value;
+            dstPath = '';
+            loadPath(dstRemote, '', false);
+            updateBreadcrumbs(dstRemote, '', false);
+        });
+
+        // Transfer Control
+        startBtn.addEventListener('click', async () => {
+            if (!srcRemote || !dstRemote) {
+                alert('Please select both source and destination remotes.');
+                return;
+            }
+
+            const action = document.getElementById('transfer-action').value;
+            const transfers = parseInt(document.getElementById('transfer-threads').value);
+            const checkers = parseInt(document.getElementById('transfer-checkers').value);
+            const serverSide = document.getElementById('server-side-check').checked;
+            const extraArgsStr = document.getElementById('extra-args').value;
+            const extra_args = extraArgsStr.split(' ').filter(arg => arg.trim() !== '');
+
+            const reqBody = {
+                action,
+                src_remote: srcRemote,
+                src_path: srcPath,
+                dst_remote: dstRemote,
+                dst_path: dstPath,
+                server_side: serverSide,
+                transfers,
+                checkers,
+                extra_args
+            };
+
+            try {
+                const res = await fetch('/api/transfer/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(reqBody)
+                });
+
+                if (res.ok) {
+                    startBtn.classList.add('d-none');
+                    stopBtn.classList.remove('d-none');
+                    progressSection.classList.remove('d-none');
+                    logOutput.textContent = 'Starting transfer...\n';
+                    
+                    // Start polling status and logs
+                    startPolling();
+                } else {
+                    const err = await res.json();
+                    alert('Failed to start transfer: ' + (err.detail || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Error starting transfer: ' + e.message);
+            }
+        });
+
+        stopBtn.addEventListener('click', async () => {
+            try {
+                const res = await fetch('/api/transfer/stop', { method: 'POST' });
+                if (res.ok) {
+                    stopPolling();
+                    startBtn.classList.remove('d-none');
+                    stopBtn.classList.add('d-none');
+                    transferStatusBadge.textContent = 'Stopped';
+                    transferStatusBadge.className = 'badge bg-danger';
+                }
+            } catch (e) {
+                alert('Error stopping transfer: ' + e.message);
+            }
+        });
+
+        function startPolling() {
+            stopPolling(); // Clear any existing intervals
+            
+            statusInterval = setInterval(updateStatus, 1000);
+            logInterval = setInterval(updateLogs, 2000);
+        }
+
+        function stopPolling() {
+            if (statusInterval) clearInterval(statusInterval);
+            if (logInterval) clearInterval(logInterval);
+        }
+
+        async function updateStatus() {
+            try {
+                const res = await fetch('/api/transfer/status');
+                if (!res.ok) return;
+                const data = await res.json();
+
+                // Update status badge
+                transferStatusBadge.textContent = data.status.toUpperCase();
+                if (data.status === 'running') {
+                    transferStatusBadge.className = 'badge bg-primary';
+                } else if (data.status === 'success') {
+                    transferStatusBadge.className = 'badge bg-success';
+                    stopPolling();
+                    startBtn.classList.remove('d-none');
+                    stopBtn.classList.add('d-none');
+                } else if (data.status === 'failed') {
+                    transferStatusBadge.className = 'badge bg-danger';
+                    stopPolling();
+                    startBtn.classList.remove('d-none');
+                    stopBtn.classList.add('d-none');
+                    if (data.error) {
+                        logOutput.textContent += `\n[ERROR] ${data.error}\n`;
+                    }
+                } else if (data.status === 'stopped') {
+                    transferStatusBadge.className = 'badge bg-warning text-dark';
+                    stopPolling();
+                    startBtn.classList.remove('d-none');
+                    stopBtn.classList.add('d-none');
+                }
+
+                // Update progress bar & stats
+                const prog = data.progress;
+                if (prog && Object.keys(prog).length > 0) {
+                    const pct = prog.percentage || 0;
+                    progressBar.style.width = `${pct}%`;
+                    progressPercent.textContent = `${pct}%`;
+
+                    statSpeed.textContent = prog.speed || '0 B/s';
+                    statEta.textContent = prog.eta || 'Unknown';
+                    
+                    const bytes = formatBytes(prog.bytes || 0);
+                    const totalBytes = formatBytes(prog.total_bytes || 0);
+                    statTransferred.textContent = `${bytes} / ${totalBytes}`;
+                    
+                    statFiles.textContent = `${prog.transferred_files || 0} / ${prog.total_files || 0}`;
+
+                    // Active transfers
+                    if (prog.active_transfers && prog.active_transfers.length > 0) {
+                        activeTransfersContainer.classList.remove('d-none');
+                        activeTransfersList.innerHTML = '';
+                        prog.active_transfers.forEach(t => {
+                            const li = document.createElement('li');
+                            li.className = 'list-group-item d-flex justify-content-between align-items-center small';
+                            li.innerHTML = `
+                                <span class="text-truncate" style="max-width: 70%;">${t.name}</span>
+                                <span class="badge bg-secondary">${t.percentage}% (${formatBytes(t.speed)}/s)</span>
+                            `;
+                            activeTransfersList.appendChild(li);
+                        });
+                    } else {
+                        activeTransfersContainer.classList.add('d-none');
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function updateLogs() {
+            try {
+                const res = await fetch('/api/transfer/log?lines=100');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.log) {
+                    logOutput.textContent = data.log;
+                    // Scroll to bottom
+                    logOutput.scrollTop = logOutput.scrollHeight;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        clearLogBtn.addEventListener('click', () => {
+            logOutput.textContent = '';
+        });
+
+        // Run init
+        init();
+    </script>
+</body>
+</html>
