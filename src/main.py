@@ -398,8 +398,7 @@ def get_transfer_log(lines: int = 100, token: str = Depends(verify_token)):
 # Serve index.html at root
 @app.get("/")
 def read_root(token: Optional[str] = None, auth_token: Optional[str] = Cookie(None)):
-    # If token is provided in query, we serve the page (which will call /api/auth to set cookie)
-    # If no token, verify_token will check cookie.
+    # Check token to authorize access to the Web-UI
     current_token = token or auth_token
     if not current_token or current_token != AUTH_TOKEN:
         raise HTTPException(status_code=401, detail="Unauthorized: Invalid or missing token")
