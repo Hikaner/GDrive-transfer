@@ -126,30 +126,41 @@ def list_path(req: ListPathRequest, token: str = Depends(verify_token)):
     
     remote_path = f"{req.remote}:{req.path}"
     try:
-        # Use rclone lsf with json format for easy parsing
+        # Use rclone lsf with custom format and separator for compatibility with older rclone versions
+        # Format: p (path), i (is_dir), s (size)
+        # Separator: ;;
         cmd = [
             "rclone", "lsf",
-            "--format", "pisf",
-            "--json",
+            "--format", "pis",
+            "--separator", ";;",
             "--config", CONFIG_PATH,
             remote_path
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-            # Try to parse error message
             err_msg = result.stderr.strip() or "Unknown error listing path"
             raise HTTPException(status_code=400, detail=err_msg)
             
-        items = json.loads(result.stdout)
-        # Format items to match frontend expectations
         formatted_items = []
-        for item in items:
-            formatted_items.append({
-                "name": item.get("Name"),
-                "path": os.path.join(req.path, item.get("Name")).replace("\\", "/"),
-                "is_dir": item.get("IsDir", False),
-                "size": item.get("Size", 0),
-            })
+        lines = result.stdout.strip().split("\n")
+        for line in lines:
+            if not line.strip():
+                continue
+            parts = line.split(";;")
+            if len(parts) >= 3:
+                name = parts[0].rstrip("/") # Remove trailing slash if any
+                is_dir = parts[1].lower() == "true"
+                try:
+                    size = int(parts[2])
+                except ValueError:
+                    size = 0
+                
+                formatted_items.append({
+                    "name": name,
+                    "path": os.path.join(req.path, name).replace("\\", "/"),
+                    "is_dir": is_dir,
+                    "size": size,
+                })
         return {"items": formatted_items}
     except HTTPException as he:
         raise he
@@ -386,10 +397,13 @@ def get_transfer_log(lines: int = 100, token: str = Depends(verify_token)):
 
 # Serve index.html at root
 @app.get("/")
-def read_root(token: Optional[str] = None):
+def read_root(token: Optional[str] = None, auth_token: Optional[str] = Cookie(None)):
     # If token is provided in query, we serve the page (which will call /api/auth to set cookie)
     # If no token, verify_token will check cookie.
-    # We return the index.html file directly
+    current_token = token or auth_token
+    if not current_token or current_token != AUTH_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized: Invalid or missing token")
+        
     static_index = os.path.join(os.path.dirname(__file__), "static", "index.html")
     if os.path.exists(static_index):
         return FileResponse(static_index)
